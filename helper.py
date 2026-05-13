@@ -28,6 +28,17 @@ class ImageLoader:
         """Save a PIL image object to the given output path."""
         img_object.save(image_save_path)
 
+    def decode_tiff_to_png(
+        self,
+        tiff_path: ImagePath,
+        png_save_path: ImagePath = "image_tiff_to_png.png",
+    ) -> PILImage:
+        """Decode a TIFF image into RGB and save it as a PNG preview image."""
+        img_object = self.load_image(tiff_path)
+        png_ready_image = img_object.convert("RGB")
+        self.save_image(png_ready_image, png_save_path)
+        return png_ready_image
+
 
 class TransformingColorSpaceAlgorithm:
     """Convert an RGB image into a PIL LAB image."""

@@ -13,9 +13,14 @@ def main():
     
     converted_img_object = algorithm.rgb_to_lab_conversion()
     
-    save_path = "image/image-output.tiff"
-    image_loader.save_image(converted_img_object, save_path)
-    print(f"Image saved on {save_path}")
+    tiff_save_path = "image/image-output.tiff"
+    png_save_path = "image/image_tiff_to_png.png"
+
+    image_loader.save_image(converted_img_object, tiff_save_path)
+    print(f"LAB TIFF image saved on {tiff_save_path}")
+
+    image_loader.decode_tiff_to_png(tiff_save_path, png_save_path)
+    print(f"TIFF image converted to PNG and saved on {png_save_path}")
 
 
 if __name__ == "__main__":
