@@ -46,7 +46,7 @@ class TransformingColorSpaceAlgorithm:
         return img_object_copy, width, height, pixels
 
     def rgb_to_lab_conversion(self) -> PILImage:
-        """Convert every pixel in the image from RGBA values into LAB-based values."""
+        """Convert each pixel to LAB, then clamp the result into 8-bit image channels."""
         img_copy, width, height, pixels = self._image_deep_copy()
 
         for y in range(height):
@@ -56,7 +56,7 @@ class TransformingColorSpaceAlgorithm:
                 linearized = self._linearize(normalized)
                 xyz_pixel = self._linear_to_xyz(linearized)
                 lab_pixel = self._xyz_to_lab(xyz_pixel)
-                pixels[x, y] = tuple(int(p) for p in lab_pixel)
+                pixels[x, y] = self._clamp_lab_pixel(lab_pixel)
 
         return img_copy
 
@@ -101,11 +101,21 @@ class TransformingColorSpaceAlgorithm:
             return (1 / 3) * (29 / 6) ** 2 * value + 4 / 29
 
         x_value, y_value, z_value, alpha = pixel
-        # Reference white point for the D65 illuminant.
-        x_ref, y_ref, z_ref = 95.047, 100.000, 108.883
+        # Reference white point for the D65 illuminant in the same [0, 1] scale as XYZ.
+        x_ref, y_ref, z_ref = 0.95047, 1.00000, 1.08883
 
         l_value = 116 * lab_helper(y_value / y_ref) - 16
         a_value = 500 * (lab_helper(x_value / x_ref) - lab_helper(y_value / y_ref))
         b_value = 200 * (lab_helper(y_value / y_ref) - lab_helper(z_value / z_ref))
 
         return (l_value, a_value, b_value, alpha)
+
+    def _clamp_lab_pixel(self, pixel: LABPixel) -> RGBAPixel:
+        """Clamp LAB channel values into the valid 8-bit range before saving to an image."""
+        l_value, a_value, b_value, alpha = pixel
+        return (
+            max(0, min(255, int(l_value))),
+            max(0, min(255, int(a_value))),
+            max(0, min(255, int(b_value))),
+            max(0, min(255, int(alpha))),
+        )
