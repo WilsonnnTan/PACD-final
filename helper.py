@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import copy
 from os import PathLike
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from PIL import Image
 from PIL.Image import Image as PILImage
-from PIL.Image import PixelAccess
 
 RGBAPixel: TypeAlias = tuple[int, int, int, int]
 RGBAFloatPixel: TypeAlias = tuple[float, float, float, int]
@@ -37,7 +36,7 @@ class TransformingColorSpaceAlgorithm:
         """Store the source image that will be converted."""
         self.img_object = img_object
 
-    def _image_deep_copy(self) -> tuple[PILImage, int, int, PixelAccess]:
+    def _image_deep_copy(self) -> tuple[PILImage, int, int, RGBAPixel]:
         """Clone the source image so pixel transformations do not modify the original."""
         img_object_copy = copy.deepcopy(self.img_object)
         width, height = img_object_copy.size
@@ -57,7 +56,7 @@ class TransformingColorSpaceAlgorithm:
                 linearized = self._linearize(normalized)
                 xyz_pixel = self._linear_to_xyz(linearized)
                 lab_pixel = self._xyz_to_lab(xyz_pixel)
-                pixels[x, y] = lab_pixel
+                pixels[x, y] = tuple(int(p) for p in lab_pixel)
 
         return img_copy
 
