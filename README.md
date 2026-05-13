@@ -9,6 +9,10 @@
 
 This project is about transforming color space from RGB to LAB.
 
+Source of information:
+
+- https://medium.com/@alakhsharmacs/rgb-to-lab-color-space-conversion-formulas-insights-and-applications-7fd6efa519dd
+
 ## Setup
 
 This project uses `uv` for dependency management.
