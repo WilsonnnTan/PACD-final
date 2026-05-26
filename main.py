@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 
-from PIL import Image, ImageOps, ImageTk
+from PIL import Image, ImageDraw, ImageOps, ImageTk
 from PIL.Image import Image as PILImage
 
 from utils import (
@@ -16,12 +17,14 @@ from utils import (
 )
 
 PREVIEW_IMAGE_SIZE = (320, 320)
-def main():
-    image_path = input("Input image path (default to image/image.png): ")
-    if not image_path:
-        image_path = "image/image.png"
+DEFAULT_IMAGE_PATH = Path("image/image.png")
+GENERATED_SOURCE_IMAGE_PATH = Path("image/generated-image.png")
 
-    img_object = load_image(image_path)
+
+def main():
+    resolved_image_path = resolve_image_path()
+
+    img_object = load_image(resolved_image_path)
     grayscale_img = rgb_to_grayscale_average_conversion(img_object)
     hsv_img = rgb_to_hsv_conversion(img_object)
     lab_img = rgb_to_lab_conversion(img_object)
@@ -57,6 +60,43 @@ def main():
     ]
     save_preview_images(preview_sections)
     show_transformation_gallery(preview_sections)
+
+
+def resolve_image_path() -> str:
+    """Resolve the default image path or generate a source image when it is missing."""
+    if DEFAULT_IMAGE_PATH.exists():
+        return str(DEFAULT_IMAGE_PATH)
+
+    generated_image_path = generate_default_image()
+    print(f"Default image not found. Generated a new source image: {generated_image_path}")
+    return str(generated_image_path)
+
+
+def generate_default_image() -> Path:
+    """Generate a colorful source image so the transformations can still run."""
+    GENERATED_SOURCE_IMAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    width, height = 640, 640
+    generated_image = Image.new("RGB", (width, height))
+    pixels = generated_image.load()
+    if pixels is None:
+        raise ValueError("Unable to access pixel data for generated source image.")
+
+    for y in range(height):
+        for x in range(width):
+            red = round((x / (width - 1)) * 255)
+            green = round((y / (height - 1)) * 255)
+            blue = round((((x + y) / 2) / ((width + height) / 2 - 1)) * 255)
+            pixels[x, y] = (red, green, blue)
+
+    draw = ImageDraw.Draw(generated_image)
+    draw.ellipse((60, 60, 280, 280), outline=(255, 255, 255), width=10, fill=(255, 80, 80))
+    draw.rectangle((360, 80, 580, 260), outline=(20, 20, 20), width=8, fill=(70, 180, 255))
+    draw.polygon([(120, 500), (320, 320), (520, 500)], outline=(255, 255, 255), fill=(255, 220, 60))
+    draw.line((40, 600, 600, 40), fill=(0, 0, 0), width=6)
+
+    save_image(generated_image, GENERATED_SOURCE_IMAGE_PATH)
+    return GENERATED_SOURCE_IMAGE_PATH
 
 
 def save_preview_images(preview_sections: list[list[tuple[str, PILImage, str]]]) -> None:
