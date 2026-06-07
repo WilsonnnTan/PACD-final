@@ -1,13 +1,19 @@
-from .grayscale_conversion import rgb_to_grayscale_average_conversion
-from .hsv_conversion import rgb_to_hsv_conversion
-from .lab_conversion import rgb_to_lab_conversion
 from .image_loader import decode_tiff_to_png, load_image, save_image
+from .lab_conversion import (
+    LabAdjustment,
+    LabColor,
+    calculate_average_lab,
+    lab_to_rgb_conversion,
+    rgb_to_lab_conversion,
+)
 
 __all__ = [
-    "load_image",
-    "save_image",
+    "LabAdjustment",
+    "LabColor",
+    "calculate_average_lab",
     "decode_tiff_to_png",
-    "rgb_to_grayscale_average_conversion",
-    "rgb_to_hsv_conversion",
+    "lab_to_rgb_conversion",
+    "load_image",
     "rgb_to_lab_conversion",
+    "save_image",
 ]

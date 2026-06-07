@@ -1,75 +1,74 @@
 from __future__ import annotations
 
 import tkinter as tk
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
+from typing import Final
 
 from PIL import Image, ImageDraw, ImageOps, ImageTk
 from PIL.Image import Image as PILImage
 
 from utils import (
-    decode_tiff_to_png,
+    LabAdjustment,
+    LabColor,
+    calculate_average_lab,
+    lab_to_rgb_conversion,
     load_image,
-    rgb_to_grayscale_average_conversion,
-    rgb_to_hsv_conversion,
     rgb_to_lab_conversion,
     save_image,
 )
 
-PREVIEW_IMAGE_SIZE = (320, 320)
+PREVIEW_IMAGE_SIZE: Final[tuple[int, int]] = (320, 320)
 DEFAULT_IMAGE_PATH = Path("image/image.png")
 GENERATED_SOURCE_IMAGE_PATH = Path("image/generated-image.png")
+ORIGINAL_PREVIEW_SAVE_PATH = Path("image/image-original-preview.png")
+LAB_TIFF_SAVE_PATH = Path("image/image-lab-output.tiff")
+LAB_ROUNDTRIP_PREVIEW_SAVE_PATH = Path("image/image-lab-to-rgb-preview.png")
 
 
-def main():
-    resolved_image_path = resolve_image_path()
+@dataclass(frozen=True, slots=True)
+class ConversionResult:
+    """Hold the generated images used by the preview UI and output files."""
 
-    img_object = load_image(resolved_image_path)
-    grayscale_img = rgb_to_grayscale_average_conversion(img_object)
-    hsv_img = rgb_to_hsv_conversion(img_object)
-    lab_img = rgb_to_lab_conversion(img_object)
-
-    grayscale_save_path = "image/image-grayscale-output.png"
-    lab_tiff_save_path = "image/image-lab-output.tiff"
-    lab_png_preview_path = "image/image-lab-preview.png"
-
-    save_image(grayscale_img, grayscale_save_path)
-    print(f"Grayscale image saved on {grayscale_save_path}")
-
-    save_image(lab_img, lab_tiff_save_path)
-    print(f"LAB TIFF image saved on {lab_tiff_save_path}")
-
-    decode_tiff_to_png(lab_tiff_save_path, lab_png_preview_path)
-    print(f"TIFF image converted to PNG and saved on {lab_png_preview_path}")
-
-    preview_sections = [
-        [
-            ("Original RGB", img_object, "image/image-original-preview.png"),
-            ("Grayscale Average", grayscale_img, "image/image-grayscale-output.png"),
-        ],
-        [
-            ("HSV Hue (H)", _create_hue_preview(hsv_img), "image/image-h-channel.png"),
-            ("HSV Saturation (S)", _create_saturation_preview(hsv_img), "image/image-s-channel.png"),
-            ("HSV Value (V)", _extract_grayscale_channel_preview(hsv_img, 2), "image/image-v-channel.png"),
-        ],
-        [
-            ("LAB Lightness (L)", _extract_grayscale_channel_preview(lab_img, 0), "image/image-l-channel.png"),
-            ("LAB A Channel (A)", _create_lab_a_preview(lab_img), "image/image-a-channel.png"),
-            ("LAB B Channel (B)", _create_lab_b_preview(lab_img), "image/image-b-channel.png"),
-        ],
-    ]
-    save_preview_images(preview_sections)
-    show_transformation_gallery(preview_sections)
+    original_rgb: PILImage
+    lab_image: PILImage
+    lab_roundtrip_rgb: PILImage
 
 
-def resolve_image_path() -> str:
+@dataclass(frozen=True, slots=True)
+class SliderConfig:
+    """Describe one LAB slider shown in the interface."""
+
+    key: str
+    label: str
+    minimum: float
+    maximum: float
+    resolution: float = 1.0
+
+
+SLIDER_CONFIGS: Final[tuple[SliderConfig, ...]] = (
+    SliderConfig("l", "Lightness (L)", 0.0, 100.0, resolution=0.5),
+    SliderConfig("a", "Green/Magenta (a)", -128.0, 127.0),
+    SliderConfig("b", "Blue/Yellow (b)", -128.0, 127.0),
+)
+
+
+def main() -> None:
+    source_image = load_image(resolve_image_path())
+    conversion_result = build_conversion_result(source_image)
+    save_conversion_outputs(conversion_result)
+    LabPreviewApp(conversion_result).run()
+
+
+def resolve_image_path() -> Path:
     """Resolve the default image path or generate a source image when it is missing."""
     if DEFAULT_IMAGE_PATH.exists():
-        return str(DEFAULT_IMAGE_PATH)
+        return DEFAULT_IMAGE_PATH
 
     generated_image_path = generate_default_image()
     print(f"Default image not found. Generated a new source image: {generated_image_path}")
-    return str(generated_image_path)
+    return generated_image_path
 
 
 def generate_default_image() -> Path:
@@ -99,142 +98,206 @@ def generate_default_image() -> Path:
     return GENERATED_SOURCE_IMAGE_PATH
 
 
-def save_preview_images(preview_sections: list[list[tuple[str, PILImage, str]]]) -> None:
-    """Save every preview image shown in the Tkinter gallery."""
-    for preview_images in preview_sections:
-        for title, img_object, save_path in preview_images:
-            save_image(img_object, save_path)
-            print(f"{title} preview saved on {save_path}")
+def build_conversion_result(img_object: PILImage) -> ConversionResult:
+    """Create the RGB source image, LAB image, and RGB round-trip preview."""
+    original_rgb = img_object.convert("RGB")
+    lab_image = rgb_to_lab_conversion(original_rgb)
+    lab_roundtrip_rgb = lab_to_rgb_conversion(lab_image)
+    return ConversionResult(
+        original_rgb=original_rgb,
+        lab_image=lab_image,
+        lab_roundtrip_rgb=lab_roundtrip_rgb,
+    )
 
 
-def show_transformation_gallery(preview_sections: list[list[tuple[str, PILImage, str]]]) -> None:
-    """Render a Tkinter window that displays the source image and conversions."""
-    root = tk.Tk()
-    root.title("Image Transformation Preview")
+def save_conversion_outputs(conversion_result: ConversionResult) -> None:
+    """Persist the core outputs generated by the LAB conversion pipeline."""
+    LAB_TIFF_SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    container = ttk.Frame(root, padding=16)
-    container.grid(sticky="nsew")
+    outputs = (
+        ("Original RGB", conversion_result.original_rgb, ORIGINAL_PREVIEW_SAVE_PATH),
+        ("LAB TIFF", conversion_result.lab_image, LAB_TIFF_SAVE_PATH),
+        ("LAB -> RGB Preview", conversion_result.lab_roundtrip_rgb, LAB_ROUNDTRIP_PREVIEW_SAVE_PATH),
+    )
 
-    root.columnconfigure(0, weight=1)
-    root.rowconfigure(0, weight=1)
+    for title, img_object, save_path in outputs:
+        save_image(img_object, save_path)
+        print(f"{title} saved on {save_path}")
 
-    photo_images: list[ImageTk.PhotoImage] = []
 
-    max_columns = max(len(preview_images) for preview_images in preview_sections)
+class LabPreviewApp:
+    """Display the original image beside a live LAB-adjusted RGB preview."""
 
-    for row, preview_images in enumerate(preview_sections):
-        for column, (title, img_object, _) in enumerate(preview_images):
-            frame = ttk.Frame(container, padding=12)
-            frame.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+    def __init__(self, conversion_result: ConversionResult) -> None:
+        self.conversion_result = conversion_result
+        self.preview_original_rgb = _prepare_preview_image(conversion_result.original_rgb)
+        self.preview_lab_image = rgb_to_lab_conversion(self.preview_original_rgb)
+        self.base_lab_color: LabColor = calculate_average_lab(self.preview_lab_image)
 
-            preview_image = _prepare_preview_image(img_object)
-            photo_image = ImageTk.PhotoImage(preview_image)
-            photo_images.append(photo_image)
+        self.root = tk.Tk()
+        self.root.title("LAB Round-Trip Preview")
 
-            title_label = ttk.Label(frame, text=title)
-            title_label.pack(pady=(0, 8))
+        self.slider_vars: dict[str, tk.DoubleVar] = {
+            config.key: tk.DoubleVar(
+                master=self.root,
+                value=self._initial_slider_value(config),
+            )
+            for config in SLIDER_CONFIGS
+        }
+        self.slider_value_labels: dict[str, ttk.Label] = {}
 
-            image_label = ttk.Label(frame, image=photo_image)
-            image_label.pack()
+        self.original_photo_image = ImageTk.PhotoImage(self.preview_original_rgb)
+        self.adjusted_photo_image: ImageTk.PhotoImage | None = None
+        self.adjusted_image_label: ttk.Label | None = None
+        self.adjustment_summary_label: ttk.Label | None = None
 
-    for column in range(max_columns):
-        container.columnconfigure(column, weight=1)
-    for row in range(len(preview_sections)):
-        container.rowconfigure(row, weight=1)
+        self._build_window()
+        self._refresh_adjusted_preview()
 
-    root.photo_images = photo_images
-    root.mainloop()
+    def run(self) -> None:
+        """Start the Tkinter preview loop."""
+        self.root.mainloop()
+
+    def _build_window(self) -> None:
+        container = ttk.Frame(self.root, padding=16)
+        container.grid(sticky="nsew")
+
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        preview_frame = ttk.Frame(container)
+        preview_frame.grid(row=0, column=0, sticky="nsew")
+        preview_frame.columnconfigure(0, weight=1)
+        preview_frame.columnconfigure(1, weight=1)
+
+        self._build_original_panel(preview_frame)
+        self._build_adjusted_panel(preview_frame)
+        self._build_slider_panel(container)
+
+    def _build_original_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Original RGB", padding=12)
+        frame.grid(row=0, column=0, padx=(0, 8), pady=(0, 16), sticky="nsew")
+
+        image_label = ttk.Label(frame, image=self.original_photo_image)
+        image_label.grid(row=0, column=0)
+
+    def _build_adjusted_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="LAB -> RGB Preview", padding=12)
+        frame.grid(row=0, column=1, padx=(8, 0), pady=(0, 16), sticky="nsew")
+
+        self.adjusted_image_label = ttk.Label(frame)
+        self.adjusted_image_label.grid(row=0, column=0)
+
+        self.adjustment_summary_label = ttk.Label(frame, padding=(0, 10, 0, 0))
+        self.adjustment_summary_label.grid(row=1, column=0)
+
+    def _build_slider_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="LAB Controls", padding=12)
+        frame.grid(row=1, column=0, sticky="ew")
+        frame.columnconfigure(1, weight=1)
+
+        helper_label = ttk.Label(
+            frame,
+            text="The sliders start from the average LAB values computed from the RGB to LAB conversion.",
+            wraplength=700,
+        )
+        helper_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 12))
+
+        for row, config in enumerate(SLIDER_CONFIGS, start=1):
+            label = ttk.Label(frame, text=config.label)
+            label.grid(row=row, column=0, sticky="w", padx=(0, 12), pady=4)
+
+            slider = tk.Scale(
+                frame,
+                from_=config.minimum,
+                to=config.maximum,
+                resolution=config.resolution,
+                orient=tk.HORIZONTAL,
+                length=340,
+                variable=self.slider_vars[config.key],
+                command=self._handle_slider_change,
+            )
+            slider.grid(row=row, column=1, sticky="ew", pady=4)
+
+            value_label = ttk.Label(frame, width=8, anchor="e")
+            value_label.grid(row=row, column=2, sticky="e", pady=4)
+            self.slider_value_labels[config.key] = value_label
+
+        reset_button = ttk.Button(
+            frame,
+            text="Reset to Default",
+            command=self._reset_to_default_values,
+        )
+        reset_button.grid(row=len(SLIDER_CONFIGS) + 1, column=0, columnspan=3, sticky="e", pady=(12, 0))
+
+    def _handle_slider_change(self, _value: str) -> None:
+        self._refresh_adjusted_preview()
+
+    def _reset_to_default_values(self) -> None:
+        for config in SLIDER_CONFIGS:
+            self.slider_vars[config.key].set(self._initial_slider_value(config))
+        self._refresh_adjusted_preview()
+
+    def _refresh_adjusted_preview(self) -> None:
+        current_lab_color = self._current_lab_color()
+        adjustment = self._current_adjustment(current_lab_color)
+        adjusted_rgb = lab_to_rgb_conversion(self.preview_lab_image, adjustment)
+
+        self.adjusted_photo_image = ImageTk.PhotoImage(adjusted_rgb)
+        if self.adjusted_image_label is not None:
+            self.adjusted_image_label.configure(image=self.adjusted_photo_image)
+
+        if self.adjustment_summary_label is not None:
+            self.adjustment_summary_label.configure(
+                text=(
+                    "Average LAB target: "
+                    f"L { _format_channel_value(current_lab_color.lightness) } | "
+                    f"a { _format_channel_value(current_lab_color.a_value) } | "
+                    f"b { _format_channel_value(current_lab_color.b_value) }"
+                )
+            )
+
+        for config in SLIDER_CONFIGS:
+            self.slider_value_labels[config.key].configure(
+                text=_format_channel_value(self.slider_vars[config.key].get())
+            )
+
+    def _current_adjustment(self, current_lab_color: LabColor) -> LabAdjustment:
+        return LabAdjustment(
+            lightness_delta=current_lab_color.lightness - self.base_lab_color.lightness,
+            a_delta=current_lab_color.a_value - self.base_lab_color.a_value,
+            b_delta=current_lab_color.b_value - self.base_lab_color.b_value,
+        )
+
+    def _initial_slider_value(self, config: SliderConfig) -> float:
+        base_values = {
+            "l": self.base_lab_color.lightness,
+            "a": self.base_lab_color.a_value,
+            "b": self.base_lab_color.b_value,
+        }
+        return base_values[config.key]
+
+    def _current_lab_color(self) -> LabColor:
+        return LabColor(
+            lightness=self.slider_vars["l"].get(),
+            a_value=self.slider_vars["a"].get(),
+            b_value=self.slider_vars["b"].get(),
+        )
 
 
 def _prepare_preview_image(img_object: PILImage) -> PILImage:
-    """Convert transformed images into Tkinter-friendly RGB previews."""
+    """Convert the image into a Tkinter-friendly preview size."""
     preview_image = img_object.convert("RGB")
-
     return ImageOps.contain(preview_image, PREVIEW_IMAGE_SIZE)
 
 
-def _extract_grayscale_channel_preview(img_object: PILImage, channel_index: int) -> PILImage:
-    """Extract one channel and normalize it for clearer grayscale previewing."""
-    channels = img_object.split()
-    if channel_index >= len(channels):
-        raise ValueError(f"Channel index {channel_index} is out of range for mode {img_object.mode}.")
-    channel_image = channels[channel_index].copy()
-    channel_min, channel_max = channel_image.getextrema()
-    if channel_min == channel_max:
-        return channel_image
-    return ImageOps.autocontrast(channel_image)
-
-
-def _create_hue_preview(hsv_img: PILImage) -> PILImage:
-    """Visualize hue as a full-color spectrum while ignoring source saturation and value."""
-    hue_channel = hsv_img.split()[0]
-    full_saturation = Image.new("L", hsv_img.size, 255)
-    full_value = Image.new("L", hsv_img.size, 255)
-    return Image.merge("HSV", (hue_channel, full_saturation, full_value)).convert("RGB")
-
-
-def _create_saturation_preview(hsv_img: PILImage) -> PILImage:
-    """Visualize saturation using a fixed red hue and full brightness."""
-    saturation_channel = _extract_grayscale_channel_preview(hsv_img, 1)
-    fixed_hue = Image.new("L", hsv_img.size, 0)
-    full_value = Image.new("L", hsv_img.size, 255)
-    return Image.merge("HSV", (fixed_hue, saturation_channel, full_value)).convert("RGB")
-
-
-def _create_lab_a_preview(lab_img: PILImage) -> PILImage:
-    """Visualize the LAB A axis from green through neutral gray to magenta."""
-    return _create_centered_axis_preview(
-        lab_img.split()[1],
-        negative_color=(0, 255, 0),
-        positive_color=(255, 0, 255),
-    )
-
-
-def _create_lab_b_preview(lab_img: PILImage) -> PILImage:
-    """Visualize the LAB B axis from blue through neutral gray to yellow."""
-    return _create_centered_axis_preview(
-        lab_img.split()[2],
-        negative_color=(0, 0, 255),
-        positive_color=(255, 255, 0),
-    )
-
-
-def _create_centered_axis_preview(
-    channel_image: PILImage,
-    negative_color: tuple[int, int, int],
-    positive_color: tuple[int, int, int],
-) -> PILImage:
-    """Map a centered channel around 128 into an intuitive false-color preview."""
-    preview_image = Image.new("RGB", channel_image.size)
-    source_pixels = channel_image.load()
-    preview_pixels = preview_image.load()
-    if source_pixels is None or preview_pixels is None:
-        raise ValueError("Unable to access pixel data for channel preview generation.")
-
-    width, height = channel_image.size
-    neutral = (128, 128, 128)
-
-    for y in range(height):
-        for x in range(width):
-            encoded_value = source_pixels[x, y]
-            offset = encoded_value - 128
-            strength = min(1.0, abs(offset) / 127.0)
-            target_color = positive_color if offset >= 0 else negative_color
-            preview_pixels[x, y] = _blend_rgb(neutral, target_color, strength)
-
-    return preview_image
-
-
-def _blend_rgb(
-    start_color: tuple[int, int, int],
-    end_color: tuple[int, int, int],
-    strength: float,
-) -> tuple[int, int, int]:
-    """Blend two RGB colors using a strength value in the range [0, 1]."""
-    return tuple(
-        round(start_channel + (end_channel - start_channel) * strength)
-        for start_channel, end_channel in zip(start_color, end_color, strict=True)
-    )
+def _format_channel_value(value: float) -> str:
+    """Format LAB channel values consistently for the live labels."""
+    if value.is_integer():
+        return f"{value:.0f}"
+    return f"{value:.1f}"
 
 
 if __name__ == "__main__":
