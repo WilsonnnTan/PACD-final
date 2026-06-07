@@ -21,7 +21,6 @@ from utils import (
 
 PREVIEW_IMAGE_SIZE: Final[tuple[int, int]] = (320, 320)
 DEFAULT_IMAGE_PATH = Path("image/image.png")
-GENERATED_SOURCE_IMAGE_PATH = Path("image/generated-image.png")
 ORIGINAL_PREVIEW_SAVE_PATH = Path("image/image-original-preview.png")
 LAB_TIFF_SAVE_PATH = Path("image/image-lab-output.tiff")
 LAB_ROUNDTRIP_PREVIEW_SAVE_PATH = Path("image/image-lab-to-rgb-preview.png")
@@ -67,13 +66,13 @@ def resolve_image_path() -> Path:
         return DEFAULT_IMAGE_PATH
 
     generated_image_path = generate_default_image()
-    print(f"Default image not found. Generated a new source image: {generated_image_path}")
+    print(f"Default image not found. Generated a new source image at {generated_image_path}")
     return generated_image_path
 
 
 def generate_default_image() -> Path:
     """Generate a colorful source image so the transformations can still run."""
-    GENERATED_SOURCE_IMAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_IMAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     width, height = 640, 640
     generated_image = Image.new("RGB", (width, height))
@@ -94,8 +93,8 @@ def generate_default_image() -> Path:
     draw.polygon([(120, 500), (320, 320), (520, 500)], outline=(255, 255, 255), fill=(255, 220, 60))
     draw.line((40, 600, 600, 40), fill=(0, 0, 0), width=6)
 
-    save_image(generated_image, GENERATED_SOURCE_IMAGE_PATH)
-    return GENERATED_SOURCE_IMAGE_PATH
+    save_image(generated_image, DEFAULT_IMAGE_PATH)
+    return DEFAULT_IMAGE_PATH
 
 
 def build_conversion_result(img_object: PILImage) -> ConversionResult:
